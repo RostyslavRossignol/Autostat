@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Анализ рекламы Meta + Keitaro</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+  <style>
+    body { background-color: #f0f4f8; }
+    .card { box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 2rem; }
+    .controls { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+    .metrics-controls label { cursor: pointer; margin-right: .5rem; }
+    .old-value { opacity: 0.6; text-decoration: line-through; }
+    .new-value { font-weight: bold; margin-left: 0.25rem; }
+
+    /* Row color by status */
+    .table-status-active td { background-color: #d4edda !important; }
+    .table-status-inactive td { background-color: #f8d7da !important; }
+
+    /* Fixed header and first two columns */
+    .table-responsive { position: relative; width: 100%; overflow: auto; }
+    .table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background-color: #fff;
+    }
+    .table thead th:nth-child(1),
+    .table tbody td:nth-child(1),
+    .table thead th:nth-child(2),
+    .table tbody td:nth-child(2) {
+      position: sticky;
+      left: 0;
+      background-color: #fff;
+      z-index: 3;
+    }
+
+    /* Zoom control */
+    .zoom-control { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; }
+    .zoom-control label { font-weight: 500; margin-bottom: 0; }
+
+    /* Header buttons spacing */
+    .d-flex > div > button { margin-top: 0.5rem; margin-bottom: 0.5rem; }
+
+    /* Table border color enhancement */
+    .table-bordered th,
+    .table-bordered td {
+      border-color: #6c757d !important;
+    }
+
+    /* Styles for Decomposition Modal - MODIFIED */
+    #decompositionModal .modal-dialog {
+      max-width: 75vw;
+      /* Adjust max-height for better fit, allowing for 5% top/bottom margin */
+      max-height: 90vh; /* Changed from 80vh back to 90vh, but will rely on margin below */
+      margin: 5vh auto; /* 5% top/bottom margin, auto for left/right to center horizontally */
+      position: relative; /* Changed from absolute to relative for better default centering with margin */
+      top: unset; /* Unset top/left/transform for margin to take effect */
+      left: unset;
+      transform: unset;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #decompositionModal .modal-content {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      max-height: 100%;
+    }
+
+    #decompositionModal .modal-body {
+      flex-grow: 1;
+      overflow-y: auto;
+      padding: 1rem;
+    }
+
+    #decompositionModal .table {
+      max-width: none;
+      min-width: unset;
+      table-layout: auto;
+    }
+    #decompositionModal .form-control {
+      padding: 5px;
+      margin: 0;
+      height: auto;
+      transition: transform 0.2s ease;
+    }
+    #decompositionModal .form-control:hover {
+      transform: scale(1.05);
+    }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    
+<div class="d-flex justify-content-between align-items-center mb-4">
+      <h1>📊 Анализ рекламы Meta + Keitaro</h1>
+      <div>
+        <button id="saveBtn" class="btn btn-secondary me-1">Сохранить</button>
+        <button id="resetBtn" class="btn btn-warning me-1">Сбросить</button>
+        <button id="exportBtn" class="btn btn-info me-1">Экспорт JSON</button>
+        <button id="importBtn" class="btn btn-info me-1">Импорт JSON</button>
+        <button id="shareBtn" class="btn btn-primary">Сгенерировать ссылку</button>
+        <input type="file" id="importFile" accept="application/json" style="display:none">
+      </div>
+    </div>
+
+    
+<div class="row mb-3">
+      <div class="col-md-6">
+        <label for="metaFile" class="form-label">Загрузить CSV Meta Ads</label>
+        <input id="metaFile" type="file" class="form-control" accept=".csv">
+      </div>
+      <div class="col-md-6">
+        <label for="keitaroFile" class="form-label">Загрузить CSV Keitaro (необязательно)</label>
+        <input id="keitaroFile" type="file" class="form-control" accept=".csv">
+      </div>
+    </div>
+
+    
+<div id="changesSummary"></div>
+
+    
+<div id="resultArea"></div>
+  </div>
+
+  
+<div class="modal fade" id="decompositionModal" tabindex="-1" aria-labelledby="decompositionModalLabel" aria-hidden="true">
+    <div class="modal-dialog"> 
+<div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="decompositionModalLabel">Декомпозиция по РК: <span id="decompAccId"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          
+<div class="container mt-4">
+            <table class="table table-bordered text-center table">
+              <thead class="table-secondary">
+                <tr>
+                  <th class="table-dark">Декомпозиция</th>
+                  <th>Результат</th>
+                  <th colspan="2">Метрика</th>
+                  <th>Цена</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td class="fw-semibold table-secondary">Бюджет $
+                      (Затраты)</td><td class="table-success"><input
+                      type="text"
+                      class="form-control text-center money-input fw-bold result-value-input"
+                      id="budget" placeholder="0"></td><td
+                      class="fw-semibold table-danger">Значение</td><td
+                      class="fw-semibold table-secondary">Название</td><td></td></tr>
+                <tr><td
+                      class="fw-semibold table-secondary">Показы</td><td
+                      class="d-flex justify-content-center align-items-center"><input
+                      type="text"
+                      class="form-control text-center fw-semibold result-value-input"
+                      id="impressions" placeholder="0"></td><td
+                      class="table-success"><input type="text"
+                      class="form-control text-center money-input fw-bold"
+                      id="impressions-value"></td><td>(CPM)</td><td></td></tr>
+                <tr>
+                  <td class="fw-semibold table-secondary">Клики</td>
+                  <td><input type="text"
+                      class="form-control text-center fw-semibold result-value-input"
+                      id="clicks" placeholder="0"></td>
+                  <td class="table-success">
+                      <input type="text"
+                      class="form-control text-center percent-input fw-bold"
+                      id="clicks-value">
+                  </td>
+                  <td>(CTR)</td>
+                  <td class="table-primary">
+                      <input type="text"
+                      class="form-control text-center fw-semibold"
+                      id="click-price">
+                  </td>
+                </tr>
+                <tr><td class="fw-semibold table-secondary">Подписки
+                      (Инсталлы)</td><td><input type="text"
+                      class="form-control text-center fw-semibold result-value-input"
+                      id="subscribers" placeholder="0"></td><td
+                      class="table-success"><input type="text"
+                      class="form-control text-center percent-input fw-bold"
+                      id="subscribers-value"></td><td>(sub2subscriber)</td><td
+                      class="table-primary"><input type="text"
+                      class="form-control text-center fw-semibold"
+                      id="subscriber-price"></td></tr>
+                <tr><td
+                      class="fw-semibold table-secondary">Регистрации</td><td><input
+                      type="text"
+                      class="form-control text-center fw-semibold result-value-input"
+                      id="registrations" placeholder="0"></td><td
+                      class="table-success"><input type="text"
+                      class="form-control text-center percent-input fw-bold"
+                      id="registrations-value"></td><td>(sub2reg)</td><td
+                      class="table-primary"><input type="text"
+                      class="form-control text-center fw-semibold"
+                      id="registration-price"></td></tr>
+                <tr><td
+                      class="fw-semibold table-secondary">Депозиты</td><td><input
+                      type="text"
+                      class="form-control text-center fw-semibold result-value-input"
+                      id="deposits" placeholder="0"></td><td
+                      class="table-success"><input type="text"
+                      class="form-control text-center percent-input fw-bold"
+                      id="deposits-value"></td><td>(reg2dep)</td><td
+                      class="table-primary"><input type="text"
+                      class="form-control text-center fw-semibold"
+                      id="deposit-price"></td></tr>
+                <tr><td class="fw-semibold table-secondary">Квалификации</td><td><input type="text"
+                      class="form-control text-center fw-semibold result-value-input"
+                      id="qualifications" placeholder="0"></td><td
+                      class="table-success"><input type="text"
+                      class="form-control text-center percent-input fw-bold"
+                      id="qualifications-value"></td><td>(AR)
+                      Апрув</td><td class="table-primary"><input
+                      type="text"
+                      class="form-control text-center fw-semibold"
+                      id="qualification-price"></td></tr>
+                <tr><td class="fw-semibold table-secondary">Выплата
+                      $</td><td class="table-success"><input
+                      type="text"
+                      class="form-control text-center money-input fw-bold result-value-input"
+                      id="payout"
+                      placeholder="0"></td><td></td><td></td><td></td></tr>
+                <tr class="table-info"><td
+                      class="fw-bold table-warning">Доход:</td><td
+                      colspan="4"><div
+                      class="d-flex justify-content-center"><input
+                      type="text"
+                      class="form-control text-center money-input fw-bold w-50"
+                      id="revenue" readonly></div></td></tr>
+                <tr class="table-success"><td
+                      class="fw-bold table-warning">Профит:</td><td
+                      colspan="4"><div
+                      class="d-flex justify-content-center"><input
+                      type="text"
+                      class="form-control text-center money-input fw-bold w-50"
+                      id="profit" readonly></div></td></tr>
+                <tr class="table-danger"><td
+                      class="fw-bold table-warning">ROI</td><td
+                      colspan="4"><div
+                      class="d-flex justify-content-center"><input
+                      type="text"
+                      class="form-control text-center percent-input fw-bold w-50"
+                      id="roi" readonly></div></td></tr>
+                <tr><td class="fw-semibold table-warning">CR
+                      (под/квалификация)</td><td><input type="text"
+                      class="form-control text-center fw-bold"
+                      id="cr-sub-qual" readonly></td><td
+                      class="fw-semibold"></td><td
+                      class="fw-semibold table-warning">CR
+                      (под/депозит)</td><td><input type="text"
+                      class="form-control text-center fw-bold"
+                      id="cr-sub-dep" readonly></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script>
+    // Data storage
+    let metaData = [];
+    let keitaroData = {};
+    let metaReady = false;
+    let keitaroReady = false;
+
+    // Field mapping for Meta CSV columns
+    const fieldMap = {
+      spend: [/Amount spent/i, /Сумма затрат/i, /Потрачено/i, /Сумма потрачено/i, /Сума витрат/i, /Витрачено/i, /Amount spent \(USD\)/i, /Витрачено \(USD\)/i],
+      clicks: [/Clicks/i, /Клики/i, /Кліки/i, /Clicks \(all\)/i, /Кліки \(всього\)/i],
+      subscribes: [/Results/i, /Subscribes/i, /Подписки/i, /Лиды/i, /Підписки/i, /Leads/i, /Ліди/i],
+      registrations: [/Completed registration/i, /Заверш.*регистрации/i, /Регистрации/i, /Реєстрації/i, /Registrations Completed/i, /Завершені реєстрації/i],
+      deposits: [/Purchases/i, /Completed purchases/i, /Покупки/i, /Депозиты/i, /Депозити/i],
+      delivery: [/Delivery/i, /Статус показа/i, /Показ рекламы/i, /Статус показу/i, /Показ реклами/i, /Ad Delivery/i, /Статус доставки/i],
+      impressions: [/Impressions/i, /Показы/i, /Покази/i, /Reach/i, /Охоплення/i],
+      name: [/Ad name/i, /Campaign name/i, /Название объявления/i, /Назва оголошення/i]
+    };
+
+    // Helper to match column names
+    function matchField(row, matchers) {
+      return Object.keys(row).find(key => matchers.some(rx => rx.test(key))) || '';
+    }
+
+    // Extract account ID from ad name pattern
+    function extractCabinetId(name) {
+      const match = name.match(/_(\d{8,})_/) || [];
+      return match[1] || 'unknown';
+    }
+
+    // Parse Meta Ads CSV - MODIFIED
+    function parseMeta(results) {
+      metaData = results.data
+        .filter(r => Object.keys(r).length > 2)
+        .map(r => {
+          const adName = r[matchField(r, fieldMap.name)] || '';
+          const subscribes = parseInt(r[matchField(r, fieldMap.subscribes)]) || 0;
+          const registrations = parseInt(r[matchField(r, fieldMap.registrations)]) || 0;
+          const deposits = parseInt(r[matchField(r, fieldMap.deposits)]) || 0;
+          
+          return {
+            accId: extractCabinetId(adName),
+            sid: adName.split('-')[0].trim(),
+            adName: adName,
+            spend: parseFloat(r[matchField(r, fieldMap.spend)]) || 0,
+            clicks: parseInt(r[matchField(r, fieldMap.clicks)]) || 0,
+            
+            // Store original values from Meta Ads
+            originalSubscribes: subscribes,
+            originalRegistrations: registrations,
+            originalDeposits: deposits,
+            originalQualifications: 0, // Meta Ads doesn't have 'qua' directly
+
+            // Current (potentially updated by Keitaro) values
+            subscribes: subscribes,
+            registrations: registrations,
+            deposits: deposits,
+            qualifications: 0, 
+
+            impressions: parseInt(r[matchField(r, fieldMap.impressions)]) || 0,
+            delivery: (r[matchField(r, fieldMap.delivery)] || '').toLowerCase().trim()
+          };
+        });
+      metaReady = true;
+      renderTables();
+    }
+
+    // Parse Keitaro CSV - MODIFIED
+    function parseKeitaro(results) {
+      keitaroData = {};
+      results.data.forEach(r => {
+        const sid = (r['Sub ID 1'] || '').split('-')[0].trim();
+        if (!sid) return;
+        const status = (r['Оригинальный статус'] || r['Ориг. статус'] || '').toLowerCase();
+        keitaroData[sid] = keitaroData[sid] || { subscribe: 0, reg: 0, dep: 0, qua: 0 }; 
+        if (status === 'new') keitaroData[sid].subscribe++;
+        if (status === 'reg') keitaroData[sid].reg++;
+        if (status === 'dep') keitaroData[sid].dep++;
+        if (status === 'qua') keitaroData[sid].qua++; 
+      });
+
+      // Update metaData with Keitaro values for rendering and calculations
+      metaData.forEach(ad => {
+          const k = keitaroData[ad.sid] || {};
+          // Update ad properties if Keitaro has higher values
+          if (k.subscribe > ad.subscribes) ad.subscribes = k.subscribe;
+          if (k.reg > ad.registrations) ad.registrations = k.reg;
+          if (k.dep > ad.deposits) ad.deposits = k.dep;
+          if (k.qua > ad.qualifications) ad.qualifications = k.qua; 
+      });
+
+      keitaroReady = true;
+      updateSummary(); 
+      renderTables(); 
+    }
+
+    // Update changes summary - REVERTED/MODIFIED
+    function updateSummary() {
+      const changes = [];
+      metaData.forEach(ad => {
+        // Compare current (possibly Keitaro-updated) values with original Meta Ads values
+        if (ad.subscribes > ad.originalSubscribes) changes.push(`Sub ${ad.adName}: ${ad.originalSubscribes} → ${ad.subscribes}`);
+        if (ad.registrations > ad.originalRegistrations)  changes.push(`Реги ${ad.adName}: ${ad.originalRegistrations} → ${ad.registrations}`);
+        if (ad.deposits > ad.originalDeposits)       changes.push(`Депы ${ad.adName}: ${ad.originalDeposits} → ${ad.deposits}`);
+        if (ad.qualifications > ad.originalQualifications) changes.push(`Квал. ${ad.adName}: ${ad.originalQualifications} → ${ad.qualifications}`); 
+      });
+      const summaryEl = document.getElementById('changesSummary');
+      if (changes.length) {
+        summaryEl.innerHTML = `
+          <div class="alert alert-info">
+            <strong>Изменения:</strong>
+            <ul>
+              ${changes.map(s => `<li>${s}</li>`).join('')}
+            </ul>
+          </div>`;
+      } else {
+        summaryEl.innerHTML = '';
+      }
+    }
+
+
+    // Function to calculate and update decomposition values - MODIFIED (to accept payout value)
+    function calculateDecomposition(dataToDecompose, depositPriceFromTable = 0) {
+        const budget = dataToDecompose.reduce((sum, ad) => sum + ad.spend, 0);
+        const impressions = dataToDecompose.reduce((sum, ad) => sum + ad.impressions, 0);
+        const clicks = dataToDecompose.reduce((sum, ad) => sum + ad.clicks, 0);
+        const subscribers = dataToDecompose.reduce((sum, ad) => sum + ad.subscribes, 0); 
+        const registrations = dataToDecompose.reduce((sum, ad) => sum + ad.registrations, 0); 
+        const deposits = dataToDecompose.reduce((sum, ad) => sum + ad.deposits, 0); 
+        const qualifications = dataToDecompose.reduce((sum, ad) => sum + ad.qualifications, 0); 
+
+        // Set 'payout' field directly from depositPriceFromTable
+        const payoutInput = document.getElementById('payout');
+        // Only set if current value is 0 or empty, or if initial value was different AND no manual changes have been made
+        if (parseFloat(payoutInput.value) === 0 || payoutInput.value === '' || isNaN(parseFloat(payoutInput.value)) || payoutInput.dataset.initialLoadValue === 'true') {
+            payoutInput.value = depositPriceFromTable.toFixed(2);
+            payoutInput.dataset.initialLoadValue = 'false'; // Mark as not initial load anymore
+        }
+        // Store the value that was passed from the table (regardless if it was used to update the input)
+        payoutInput.dataset.latestTableValue = depositPriceFromTable.toFixed(2);
+
+
+        document.getElementById('budget').value = budget.toFixed(2);
+        document.getElementById('impressions').value = impressions;
+        document.getElementById('clicks').value = clicks;
+        document.getElementById('subscribers').value = subscribers;
+        document.getElementById('registrations').value = registrations;
+        document.getElementById('deposits').value = deposits;
+        document.getElementById('qualifications').value = qualifications;
+        
+        window.calculateDecompositionModal();
+    }
+
+
+    // Render tables grouped by account - MODIFIED for diff rendering
+    function renderTables() {
+      if (!metaReady) return;
+      const grouped = {};
+      metaData.forEach(ad => { 
+        if (!grouped[ad.accId]) grouped[ad.accId] = [];
+        grouped[ad.accId].push(ad);
+      });
+
+      const area = document.getElementById('resultArea');
+      area.innerHTML = '';
+
+      Object.entries(grouped).forEach(([accId, ads], index) => {
+        const card = document.createElement('div');
+        card.className = 'card p-3';
+
+        const header = document.createElement('div');
+        header.className = 'd-flex justify-content-between align-items-center mb-3';
+        header.innerHTML = `
+          <h4 class="fw-bold text-primary">РК ${accId}</h4>
+          <div class="d-flex align-items-center">
+            <button class="btn btn-sm btn-info me-2 show-decomposition-modal" data-bs-toggle="modal" data-bs-target="#decompositionModal" data-acc-id="${accId}">Декомпозиция</button>
+            <div class="zoom-control">
+              <label for="zoomRange${index}">Масштаб:</label>
+              <input id="zoomRange${index}" type="range" min="50" max="150" value="100" class="zoomRange">
+            </div>
+          </div>`;
+        card.append(header);
+
+        const controls = document.createElement('div');
+        controls.className = 'controls';
+        controls.innerHTML = `
+          <label>Цена депозита:</label>
+          <input type="number" class="form-control form-control-sm depositInput" style="width:100px" value="100">
+          <button class="btn btn-sm btn-outline-secondary select-all">Все</button>
+          <button class="btn btn-sm btn-outline-danger deselect-all">Снять</button>
+          <span class="ms-auto">Показы: <span class="selected-impressions">0</span></span>`;
+        card.append(controls);
+
+        const metricsToggle = document.createElement('div');
+        metricsToggle.className = 'metrics-controls mb-2';
+        card.append(metricsToggle);
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'table-responsive';
+        const table = document.createElement('table');
+        table.className = 'table table-bordered';
+        table.id = `table${index}`;
+        wrapper.append(table);
+        card.append(wrapper);
+
+        area.append(card);
+
+        const depositInput = controls.querySelector('.depositInput');
+        const zoomRange = header.querySelector('.zoomRange');
+        const selImprEl = controls.querySelector('.selected-impressions');
+
+        zoomRange.addEventListener('input', () => {
+          const scale = zoomRange.value / 100;
+          wrapper.style.zoom = scale;
+          if (card._dt) card._dt.columns.adjust();
+        });
+
+        function buildTable() {
+          const price = parseFloat(depositInput.value) || 0;
+
+          const columns = [
+            '✔','Название','Статус','Спенд','Клики','CPC',
+            'Sub','CPSub','Реги','CPReg','Депы','CPDep',
+            'Квал.','Показы','Клик→Подп','Клик→Регу','Рег→Деп','Подп→Деп','Доход','ROI'
+          ];
+
+          const thead = document.createElement('thead');
+          const headerRow = document.createElement('tr');
+          columns.forEach(col => {
+            const th = document.createElement('th');
+            th.textContent = col;
+            headerRow.append(th);
+          });
+          thead.append(headerRow);
+
+          const tbody = document.createElement('tbody');
+
+          ads.forEach(ad => { 
+            const currentSub = ad.subscribes;
+            const currentReg = ad.registrations;
+            const currentDep = ad.deposits;
+            const currentQua = ad.qualifications;
+
+            const originalSub = ad.originalSubscribes;
+            const originalReg = ad.originalRegistrations;
+            const originalDep = ad.originalDeposits;
+            const originalQua = ad.originalQualifications;
+
+
+            const cpc   = ad.clicks ? (ad.spend / ad.clicks).toFixed(2) : '0';
+            const cps   = currentSub  ? (ad.spend / currentSub).toFixed(2) : '0';
+            const cpr   = currentReg  ? (ad.spend / currentReg).toFixed(2) : '0';
+            const cpd   = currentDep  ? (ad.spend / currentDep).toFixed(2) : '0';
+            const crs   = ad.clicks ? ((currentSub / ad.clicks * 100).toFixed(1) + '%') : '0%';
+            const crr   = ad.clicks ? ((currentReg / ad.clicks * 100).toFixed(1) + '%') : '0%';
+            const reg2dep = currentReg  ? ((currentDep / currentReg * 100).toFixed(1) + '%') : '0%';
+            const sub2dep = currentSub  ? ((currentDep / currentSub * 100).toFixed(1) + '%') : '0%';
+            const revenue = currentDep * price; 
+            const roi     = ad.spend ? Math.round((revenue - ad.spend) / ad.spend * 100) + '%' : '0%';
+
+            const rowClass = ad.delivery === 'active'
+              ? 'table-status-active'
+              : 'table-status-inactive';
+
+            function diffCell(originalVal, currentVal) {
+              return originalVal !== currentVal
+                ? `<span class=\"old-value\">${originalVal}</span><span class=\"new-value\">${currentVal}</span>`
+                : currentVal;
+            }
+
+            const row = document.createElement('tr');
+            row.className = rowClass;
+            row.innerHTML = `
+              <td><input type=\"checkbox\" class=\"row-check\"
+                data-spend=\"${ad.spend}\"
+                data-clicks=\"${ad.clicks}\"
+                data-subscribes=\"${currentSub}\"
+                data-registrations=\"${currentReg}\"
+                data-deposits=\"${currentDep}\"
+                data-qualifications=\"${currentQua}\" 
+                data-impressions=\"${ad.impressions}\"></td>
+              <td>${ad.adName}</td>
+              <td>${ad.delivery}</td>
+              <td>$${ad.spend.toFixed(2)}</td>
+              <td>${ad.clicks}</td>
+              <td>$${cpc}</td>
+              <td>${diffCell(originalSub, currentSub)}</td>
+              <td>$${cps}</td>
+              <td>${diffCell(originalReg, currentReg)}</td>
+              <td>$${cpr}</td>
+              <td>${diffCell(originalDep, currentDep)}</td>
+              <td>$${cpd}</td>
+              <td>${diffCell(originalQua, currentQua)}</td>
+              <td>${ad.impressions}</td>
+              <td>${crs}</td>
+              <td>${crr}</td>
+              <td>${reg2dep}</td>
+              <td>${sub2dep}</td>
+              <td>$${revenue.toFixed(2)}</td>
+              <td>${roi}</td>
+            `;
+            tbody.append(row);
+          });
+
+          table.innerHTML = '';
+          table.append(thead);
+          table.append(tbody);
+
+          if ($.fn.dataTable.isDataTable(table)) {
+            $(table).DataTable().destroy(); 
+          }
+          card._dt = $(table).DataTable({
+            paging: true,
+            pageLength: 10,
+            lengthMenu: [10, 25, 50, 100], 
+            searching: true,
+            scrollX: true,
+            dom: '<"top"lfi>rt<"bottom"p><"clear">' 
+          });
+
+          metricsToggle.innerHTML = '';
+          columns.slice(3).forEach((colTitle, colIndex) => { 
+            const label = document.createElement('label');
+            label.innerHTML = `<input type=\"checkbox\" class=\"col-toggle\" data-col=\"${colIndex+3}\" checked> ${colTitle}`;
+            metricsToggle.append(label);
+          });
+          metricsToggle.querySelectorAll('.col-toggle').forEach(cb => {
+            cb.addEventListener('change', () => {
+              const colNum = parseInt(cb.dataset.col);
+              card._dt.column(colNum).visible(cb.checked);
+            });
+          });
+
+          function updateSelection() {
+            let sum = 0;
+            card._dt.rows().every(function() {
+              const rowNode = this.node();
+              const checkbox = $(rowNode).find('.row-check');
+              if (checkbox.is(':checked')) {
+                sum += parseInt(checkbox.data('impressions')) || 0;
+              }
+            });
+            selImprEl.textContent = sum;
+          }
+          $(table).on('change', '.row-check', updateSelection);
+
+          controls.querySelector('.select-all').addEventListener('click', () => {
+            card._dt.rows({ page: 'current' }).nodes().to$().find('.row-check').prop('checked', true);
+            updateSelection();
+          });
+          controls.querySelector('.deselect-all').addEventListener('click', () => {
+            card._dt.rows({ page: 'current' }).nodes().to$().find('.row-check').prop('checked', false);
+            updateSelection();
+          });
+          
+          updateSelection();
+        }
+
+        buildTable();
+        depositInput.addEventListener('input', buildTable); 
+
+        header.querySelector('.show-decomposition-modal').addEventListener('click', function() {
+            const currentAccId = this.dataset.accId;
+            document.getElementById('decompAccId').textContent = currentAccId;
+
+            let selectedAdsForDecomposition = [];
+            
+            const currentDepositPriceInTable = parseFloat(depositInput.value) || 0;
+
+            const dataTable = card._dt; 
+            
+            if (dataTable) { 
+                dataTable.rows().every(function() {
+                    const rowNode = this.node(); 
+                    const checkbox = $(rowNode).find('.row-check'); 
+                    if (checkbox.is(':checked')) {
+                        selectedAdsForDecomposition.push({
+                            spend: parseFloat(checkbox.data('spend')),
+                            clicks: parseFloat(checkbox.data('clicks')),
+                            subscribes: parseFloat(checkbox.data('subscribes')),
+                            registrations: parseFloat(checkbox.data('registrations')),
+                            deposits: parseFloat(checkbox.data('deposits')),
+                            qualifications: parseFloat(checkbox.data('qualifications')), 
+                            impressions: parseFloat(checkbox.data('impressions'))
+                        });
+                    }
+                });
+            }
+            
+            if (selectedAdsForDecomposition.length === 0) {
+              selectedAdsForDecomposition = ads.map(ad => ({ 
+                spend: ad.spend,
+                clicks: ad.clicks,
+                subscribes: ad.subscribes,
+                registrations: ad.registrations,
+                deposits: ad.deposits,
+                qualifications: ad.qualifications, 
+                impressions: ad.impressions
+              }));
+            }
+            
+            // Set a flag to indicate that 'payout' should be initialized from 'currentDepositPriceInTable'
+            document.getElementById('payout').dataset.initialLoadValue = 'true';
+            calculateDecomposition(selectedAdsForDecomposition, currentDepositPriceInTable);
+        });
+
+      });
+    }
+
+    // Load persisted state or URL hash
+    window.addEventListener('load', () => {
+      // localStorage load
+      const saved = localStorage.getItem('metaKeitaroData');
+      if (saved) {
+        try {
+          const obj = JSON.parse(saved);
+          metaData = obj.metaData || [];
+          keitaroData = obj.keitaroData || {};
+          metaReady = keitaroReady = true;
+          if (Object.keys(keitaroData).length > 0) {
+              metaData.forEach(ad => {
+                  const k = keitaroData[ad.sid] || {};
+                  ad.originalSubscribes = ad.subscribes;
+                  ad.originalRegistrations = ad.registrations;
+                  ad.originalDeposits = ad.deposits;
+                  ad.originalQualifications = ad.qualifications;
+
+                  if (k.subscribe > ad.subscribes) ad.subscribes = k.subscribe;
+                  if (k.reg > ad.registrations) ad.registrations = k.reg;
+                  if (k.dep > ad.deposits) ad.deposits = k.dep;
+                  if (k.qua > ad.qualifications) ad.qualifications = k.qua; 
+              });
+              updateSummary();
+          }
+          renderTables();
+        } catch (e) { console.error("Error loading from localStorage", e); }
+      }
+      // URL hash load overrides
+      const hash = location.hash.substring(1);
+      if (hash) {
+        try {
+          const obj = JSON.parse(decodeURIComponent(hash));
+          if (obj.metaData) {
+            metaData = obj.metaData;
+            keitaroData = obj.keitaroData || {};
+            metaReady = keitaroReady = true;
+            if (Object.keys(keitaroData).length > 0) {
+                metaData.forEach(ad => {
+                    const k = keitaroData[ad.sid] || {};
+                    ad.originalSubscribes = ad.subscribes;
+                    ad.originalRegistrations = ad.registrations;
+                    ad.originalDeposits = ad.deposits;
+                    ad.originalQualifications = ad.qualifications;
+
+                    if (k.subscribe > ad.subscribes) ad.subscribes = k.subscribe;
+                    if (k.reg > ad.registrations) ad.registrations = k.reg;
+                    if (k.dep > ad.deposits) ad.deposits = k.dep;
+                    if (k.qua > ad.qualifications) ad.qualifications = k.qua; 
+                });
+                updateSummary();
+            }
+            renderTables();
+          }
+        } catch (e) { console.error("Error loading from URL hash", e); };
+      }
+    });
+
+    // Share link
+    document.getElementById('shareBtn').addEventListener('click', () => {
+      const payload = { metaData, keitaroData };
+      const link = location.origin + location.pathname + '#' + encodeURIComponent(JSON.stringify(payload));
+      prompt('Скопируйте ссылку:', link);
+    });
+
+    // Save to localStorage
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      localStorage.setItem('metaKeitaroData', JSON.stringify({ metaData, keitaroData }));
+      alert('Данные сохранены в localStorage');
+    });
+
+    // Reset localStorage
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      if (confirm('Очистить сохраненные данные?')) {
+        localStorage.removeItem('metaKeitaroData');
+        location.reload();
+      }
+    });
+
+    // Export JSON
+    document.getElementById('exportBtn').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify({ metaData, keitaroData }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'meta_keitaro_data.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Import JSON
+    document.getElementById('importBtn').addEventListener('click', () => {
+      document.getElementById('importFile').click();
+    });
+    document.getElementById('importFile').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = event => {
+        try {
+          const obj = JSON.parse(event.target.result);
+          if (obj.metaData) {
+            metaData = obj.metaData;
+            keitaroData = obj.keitaroData || {};
+            metaReady = keitaroReady = true;
+            if (Object.keys(keitaroData).length > 0) {
+                metaData.forEach(ad => {
+                    const k = keitaroData[ad.sid] || {};
+                    ad.originalSubscribes = ad.subscribes;
+                    ad.originalRegistrations = ad.registrations;
+                    ad.originalDeposits = ad.deposits;
+                    ad.originalQualifications = ad.qualifications;
+
+                    if (k.subscribe > ad.subscribes) ad.subscribes = k.subscribe;
+                    if (k.reg > ad.registrations) ad.registrations = k.reg;
+                    if (k.dep > ad.deposits) ad.deposits = k.dep;
+                    if (k.qua > ad.qualifications) ad.qualifications = k.qua; 
+                });
+                updateSummary();
+            }
+            renderTables();
+            alert('Данные импортированы');
+          } else {
+            alert('Неверный формат JSON');
+          }
+        } catch (err) {
+          alert('Ошибка чтения JSON: ' + err);
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // Handlers for file inputs
+    document.getElementById('metaFile').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: parseMeta
+      });
+    });
+
+    document.getElementById('keitaroFile').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        delimiter: ';',
+        complete: parseKeitaro
+      });
+    });
+
+    // Decomposition calculation logic (from your provided decomposition file)
+    window.calculateDecompositionModal = function() {
+        const budget = parseFloat(document.getElementById('budget').value) || 0;
+        const impressions = parseFloat(document.getElementById('impressions').value) || 0;
+        const clicks = parseFloat(document.getElementById('clicks').value) || 0;
+        const subscribers = parseFloat(document.getElementById('subscribers').value) || 0;
+        const registrations = parseFloat(document.getElementById('registrations').value) || 0;
+        const deposits = parseFloat(document.getElementById('deposits').value) || 0;
+        const qualifications = parseFloat(document.getElementById('qualifications').value) || 0;
+        const payout = parseFloat(document.getElementById('payout').value) || 0; 
+
+        document.getElementById('click-price').value = (clicks > 0) ? (budget / clicks).toFixed(2) + '$' : '0$';
+        document.getElementById('impressions-value').value = (impressions > 0) ? ((budget / impressions) * 1000).toFixed(2) + '$' : '0$';
+        document.getElementById('clicks-value').value = (impressions > 0) ? ((clicks / impressions) * 100).toFixed(2) + '%' : '0%';
+
+        document.getElementById('subscribers-value').value = (clicks > 0) ? ((subscribers / clicks) * 100).toFixed(2) + '%' : '0%';
+        document.getElementById('registrations-value').value = (subscribers > 0) ? ((registrations / subscribers) * 100).toFixed(2) + '%' : '0%';
+        document.getElementById('cr-sub-qual').value = (subscribers > 0) ? ((qualifications / subscribers) * 100).toFixed(2) + '%' : '0%';
+        document.getElementById('cr-sub-dep').value = (subscribers > 0) ? ((deposits / subscribers) * 100).toFixed(2) + '%' : '0%';
+        document.getElementById('subscriber-price').value = (subscribers > 0) ? (budget / subscribers).toFixed(2) + '$' : '0$';
+
+        document.getElementById('deposits-value').value = (registrations > 0) ? ((deposits / registrations) * 100).toFixed(2) + '%' : '0%';
+        document.getElementById('registration-price').value = (registrations > 0) ? (budget / registrations).toFixed(2) + '$' : '0$';
+
+        document.getElementById('qualifications-value').value = (deposits > 0) ? ((qualifications / deposits) * 100).toFixed(2) + '%' : '0%';
+        document.getElementById('deposit-price').value = (deposits > 0) ? (budget / deposits).toFixed(2) + '$' : '0$'; 
+
+        document.getElementById('qualification-price').value = (qualifications > 0) ? (budget / qualifications).toFixed(2) + '$' : '0$';
+
+        const revenue = payout * qualifications;
+        const profit = revenue - budget;
+        const roi = (budget !== 0) ? (profit / budget) * 100 : (profit > 0 ? Infinity : 0);
+        
+        document.getElementById('revenue').value = revenue.toFixed(2) + '$';
+        document.getElementById('profit').value = profit.toFixed(2) + '$';
+        document.getElementById('roi').value = roi.toFixed(2) + '%';
+    }
+
+    // Обратные вычисления при вводе в колонку "Значение"
+    document.getElementById('impressions-value').addEventListener('input', function () {
+        const budget = parseFloat(document.getElementById('budget').value) || 0;
+        const cpm = parseFloat(this.value.replace(/[^\d.]/g, '')) || 0;
+        if (cpm > 0) {
+            const impressions = budget / (cpm / 1000);
+            document.getElementById('impressions').value = impressions.toFixed(0);
+            window.calculateDecompositionModal();
+        }
+    });
+
+    document.getElementById('clicks-value').addEventListener('input', function () {
+        const impressions = parseFloat(document.getElementById('impressions').value) || 0;
+        const ctr = parseFloat(this.value.replace(/[^\d.]/g, '')) || 0;
+        if (ctr > 0) {
+            const clicks = impressions * (ctr / 100);
+            document.getElementById('clicks').value = clicks.toFixed(0);
+            window.calculateDecompositionModal();
+        }
+    });
+
+    document.getElementById('subscribers-value').addEventListener('input', function () {
+        const clicks = parseFloat(document.getElementById('clicks').value) || 0;
+        const percent = parseFloat(this.value.replace(/[^\d.]/g, '')) || 0;
+        if (percent > 0) {
+            const subscribers = clicks * (percent / 100);
+            document.getElementById('subscribers').value = subscribers.toFixed(0);
+            window.calculateDecompositionModal();
+        }
+    });
+
+    document.getElementById('registrations-value').addEventListener('input', function () {
+        const subscribers = parseFloat(document.getElementById('subscribers').value) || 0;
+        const percent = parseFloat(this.value.replace(/[^\d.]/g, '')) || 0;
+        if (percent > 0) {
+            const registrations = subscribers * (percent / 100);
+            document.getElementById('registrations').value = registrations.toFixed(0);
+            window.calculateDecompositionModal();
+        }
+    });
+
+    document.getElementById('deposits-value').addEventListener('input', function () {
+        const registrations = parseFloat(document.getElementById('registrations').value) || 0;
+        const percent = parseFloat(this.value.replace(/[^\d.]/g, '')) || 0;
+        if (percent > 0) {
+            const deposits = registrations * (percent / 100);
+            document.getElementById('deposits').value = deposits.toFixed(0);
+            window.calculateDecompositionModal();
+        }
+    });
+
+    document.getElementById('qualifications-value').addEventListener('input', function () {
+        const deposits = parseFloat(document.getElementById('deposits').value) || 0;
+        const percent = parseFloat(this.value.replace(/[^\d.]/g, '')) || 0;
+        if (percent > 0) {
+            const qualifications = deposits * (percent / 100);
+            document.getElementById('qualifications').value = qualifications.toFixed(0);
+            window.calculateDecompositionModal();
+        }
+    });
+
+    // Основные поля, при изменении которых пересчитывается всё
+    ['budget', 'impressions', 'clicks', 'subscribers', 'registrations', 'deposits', 'qualifications', 'payout', 'impressions-value', 'clicks-value', 'subscribers-value', 'registrations-value', 'deposits-value', 'qualifications-value']
+    .forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('input', window.calculateDecompositionModal);
+        }
+    });
+
+    // Перевод по Enter вниз
+    const modalResultInputs = document.querySelectorAll('#decompositionModal .result-value-input, #decompositionModal .money-input, #decompositionModal .percent-input');
+    modalResultInputs.forEach((input, index) => {
+        input.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                if (index < modalResultInputs.length - 1) {
+                    modalResultInputs[index + 1].focus();
+                } else {
+                    this.blur();
+                }
+            }
+        });
+    });
+
+    // Инициализация (will be called when modal is shown)
+    const decompositionModal = new bootstrap.Modal(document.getElementById('decompositionModal'));
+
+    // Event listener for modal show to calculate decomposition
+    document.getElementById('decompositionModal').addEventListener('show.bs.modal', function (event) {
+        const triggeredButton = event.relatedTarget; 
+        const cardElement = $(triggeredButton).closest('.card')[0]; 
+        const depositInputInCard = $(cardElement).find('.depositInput')[0]; 
+
+        const currentDepositPriceInTable = parseFloat(depositInputInCard.value) || 0;
+
+        const accId = triggeredButton.dataset.accId;
+        const currentAds = metaData.filter(ad => ad.accId === accId); 
+
+        let selectedAdsForDecomposition = [];
+        
+        const dataTable = cardElement._dt; 
+        
+        if (dataTable) { 
+            dataTable.rows().every(function() {
+                const rowNode = this.node(); 
+                const checkbox = $(rowNode).find('.row-check'); 
+                if (checkbox.is(':checked')) {
+                    selectedAdsForDecomposition.push({
+                        spend: parseFloat(checkbox.data('spend')),
+                        clicks: parseFloat(checkbox.data('clicks')),
+                        subscribes: parseFloat(checkbox.data('subscribes')),
+                        registrations: parseFloat(checkbox.data('registrations')),
+                        deposits: parseFloat(checkbox.data('deposits')),
+                        qualifications: parseFloat(checkbox.data('qualifications')), 
+                        impressions: parseFloat(checkbox.data('impressions'))
+                    });
+                }
+            });
+        }
+        
+        if (selectedAdsForDecomposition.length === 0) {
+          selectedAdsForDecomposition = currentAds.map(ad => ({ 
+            spend: ad.spend,
+            clicks: ad.clicks,
+            subscribes: ad.subscribes,
+            registrations: ad.registrations,
+            deposits: ad.deposits,
+            qualifications: ad.qualifications, 
+            impressions: ad.impressions
+          }));
+        }
+        
+        // Before calling calculateDecomposition, ensure payout input is marked for initial update
+        document.getElementById('payout').dataset.initialLoadValue = 'true';
+        calculateDecomposition(selectedAdsForDecomposition, currentDepositPriceInTable);
+    });
+
+  </script>
+</body>
+</html>
