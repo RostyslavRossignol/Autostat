@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализатор Meta Ads с Настраиваемыми Инсайтами от Gemini</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #f0f8ff, #e6f7ff);
+            font-family: 'Inter', sans-serif;
+        }
+        .card-highlight {
+            border-left: .25rem solid #0d6efd;
+        }
+        th.sortable {
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+        }
+        th.sortable::after {
+            content: '\25B2\25BC';
+            font-size: .7em;
+            position: absolute;
+            right: .5rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: rgba(0,0,0,.3);
+            transition: color 0.2s;
+        }
+        th.sortable:hover::after {
+            color: rgba(0,0,0,.7);
+        }
+        .table-hover tbody tr:hover {
+            background-color: rgba(13, 110, 253, .075);
+        }
+        .loader, .gemini-loader {
+            width: 48px;
+            height: 48px;
+            border: 5px solid #FFF;
+            border-bottom-color: #0d6efd;
+            border-radius: 50%;
+            display: inline-block;
+            box-sizing: border-box;
+            animation: rotation 1s linear infinite;
+        }
+        .gemini-loader {
+             width: 32px;
+             height: 32px;
+             border-width: 4px;
+        }
+        @keyframes rotation {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1060;
+        }
+        .gemini-output {
+            white-space: pre-wrap;
+            background-color: #f8f9fa;
+            border-radius: .5rem;
+            padding: 1rem;
+        }
+        .gemini-output table {
+            width: 100%;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+            border-collapse: collapse;
+        }
+        .gemini-output th, .gemini-output td {
+            border: 1px solid #dee2e6;
+            padding: .5rem;
+            text-align: left;
+        }
+        .gemini-output th {
+            background-color: #e9ecef;
+        }
+    </style>
+</head>
+<body>
+    <!-- Main Container -->
+    <div class="container py-5">
+        <div class="text-center mb-4">
+            <h1 class="mb-2 text-primary fw-bold">🎯 Анализатор Meta Ads с Инсайтами от Gemini</h1>
+            <p class="lead text-muted">Загрузите CSV файлы для автоматического анализа и получения рекомендаций от ИИ.</p>
+        </div>
+
+        <!-- File Upload Section -->
+        <div class="row mb-5">
+            <div class="col-md-6 mb-3">
+                <div class="card p-3 card-highlight bg-white shadow-sm h-100">
+                    <label for="metaFile" class="form-label text-secondary fw-bold"><i class="bi bi-people-fill"></i> Загрузить CSV по Возрасту и Полу</label>
+                    <input type="file" id="metaFile" class="form-control" accept=".csv" data-type="ageGender">
+                </div>
+            </div>
+            <div class="col-md-6 mb-3">
+                <div class="card p-3 card-highlight bg-white shadow-sm h-100">
+                    <label for="placementFile" class="form-label text-secondary fw-bold"><i class="bi bi-pin-map-fill"></i> Загрузить CSV по Местам Размещения</label>
+                    <input type="file" id="placementFile" class="form-control" accept=".csv" data-type="placement">
+                </div>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results">
+            <!-- Initial Message -->
+            <div id="initialMessage" class="text-center text-muted">
+                <i class="bi bi-cloud-arrow-up" style="font-size: 4rem;"></i>
+                <p class="mt-3">Результаты анализа появятся здесь после загрузки файлов.</p>
+            </div>
+
+            <!-- Age & Gender Card -->
+            <div class="card mb-5 shadow-sm" id="ageGenderCard" style="display:none;">
+                <div class="card-header bg-primary text-white">
+                    <h2 class="h4 mb-0"><i class="bi bi-bar-chart-line-fill"></i> Разбивка по возрасту и полу</h2>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped" id="ageGenderTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="sortable">Возраст</th>
+                                    <th class="sortable">Пол</th>
+                                    <th class="sortable">Затраты (USD)</th>
+                                    <th class="sortable">Клики</th>
+                                    <th class="sortable">Показы</th>
+                                    <th class="sortable">Лиды</th>
+                                    <th class="sortable">Регистрации</th>
+                                    <th class="sortable">Покупки</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div id="ageGenderAnalysis"></div>
+                </div>
+            </div>
+
+            <!-- Placements Card -->
+            <div class="card mb-5 shadow-sm" id="placementCard" style="display:none;">
+                <div class="card-header bg-success text-white">
+                    <h2 class="h4 mb-0"><i class="bi bi-graph-up-arrow"></i> Статистика по местам размещения</h2>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped" id="placementTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="sortable">Место размещения</th>
+                                    <th class="sortable">Затраты (USD)</th>
+                                    <th class="sortable">Клики</th>
+                                    <th class="sortable">Показы</th>
+                                    <th class="sortable">Лиды</th>
+                                    <th class="sortable">Регистрации</th>
+                                    <th class="sortable">Покупки</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                     <div id="placementAnalysis"></div>
+                </div>
+            </div>
+
+            <!-- Gemini Controls Card -->
+            <div class="card border-primary shadow-sm mb-4" id="geminiControlsCard" style="display:none;">
+                <div class="card-header bg-primary bg-opacity-10 text-primary border-primary">
+                     <h4 class="h5 mb-0"><i class="bi bi-gear-wide-connected"></i> Панель управления Gemini</h4>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-5">
+                            <label for="analysisTypeSelect" class="form-label">Тип анализа:</label>
+                            <select id="analysisTypeSelect" class="form-select">
+                                <!-- Options will be populated by JS -->
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="responseStyleSelect" class="form-label">Стиль ответа:</label>
+                            <select id="responseStyleSelect" class="form-select">
+                                <option value="detailed">Детальный анализ</option>
+                                <option value="short">Краткое резюме с таблицей</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-primary w-100" id="generateInsightsBtn">
+                                Получить инсайты <i class="bi bi-stars"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Gemini Insights Card -->
+            <div class="card border-primary shadow-sm" id="geminiInsightsCard" style="display:none;">
+                <div class="card-header bg-primary bg-opacity-10 text-primary border-primary">
+                    <h4 class="h5 mb-0"><i class="bi bi-robot"></i> Аналитические выводы от Gemini</h4>
+                </div>
+                <div class="card-body" id="geminiOutputContainer">
+                    <!-- Gemini output will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+        <div class="loader"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script>
+    // --- GLOBAL STATE AND CONFIGURATION ---
+    const state = {
+        ageGenderData: null,
+        placementData: null,
+        hardcodedMapping: {
+            spend: 'Сумма затрат (USD)',
+            clicks: 'Клики (все)',
+            impressions: 'Показы',
+            leads: 'Лиды',
+            registrations: 'Завершенные регистрации',
+            purchases: 'Покупки',
+            age: 'Возраст',
+            gender: 'Пол',
+            placement: 'Место размещения'
+        }
+    };
+    
+    // --- DOM ELEMENTS ---
+    const DOMElements = {
+        metaFileInput: document.getElementById('metaFile'),
+        placementFileInput: document.getElementById('placementFile'),
+        loadingOverlay: document.getElementById('loadingOverlay'),
+        initialMessage: document.getElementById('initialMessage'),
+        geminiControlsCard: document.getElementById('geminiControlsCard'),
+        analysisTypeSelect: document.getElementById('analysisTypeSelect'),
+        responseStyleSelect: document.getElementById('responseStyleSelect'),
+        generateInsightsBtn: document.getElementById('generateInsightsBtn'),
+        geminiInsightsCard: document.getElementById('geminiInsightsCard'),
+        geminiOutputContainer: document.getElementById('geminiOutputContainer'),
+    };
+
+    // --- UTILITY FUNCTIONS ---
+    function toggleLoader(show) {
+        DOMElements.loadingOverlay.style.display = show ? 'flex' : 'none';
+    }
+
+    function formatCurrency(value) {
+        return isNaN(value) || !isFinite(value) ? '0.00' : value.toFixed(2);
+    }
+
+    function sortTable(table, colIndex, isNumeric) {
+        const tbody = table.tBodies[0];
+        const rows = Array.from(tbody.rows);
+        const sortDirection = table.dataset.sortDirection === 'asc' ? 'desc' : 'asc';
+        table.dataset.sortDirection = sortDirection;
+        rows.sort((a, b) => {
+            let valA = a.cells[colIndex].textContent.trim();
+            let valB = b.cells[colIndex].textContent.trim();
+            if (isNumeric) {
+                valA = parseFloat(valA.replace(/,/g, '')) || 0;
+                valB = parseFloat(valB.replace(/,/g, '')) || 0;
+            }
+            if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
+            if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
+            return 0;
+        });
+        tbody.innerHTML = '';
+        rows.forEach(row => tbody.appendChild(row));
+    }
+    
+    function makeTableSortable(tableId, columnTypes) {
+        const table = document.getElementById(tableId);
+        table.querySelectorAll('th.sortable').forEach((th, i) => {
+            th.addEventListener('click', () => sortTable(table, i, columnTypes[i] === 'num'));
+        });
+    }
+
+    // --- GEMINI API CALL ---
+    async function fetchGeminiInsights(analysisType, responseStyle, data) {
+        DOMElements.geminiInsightsCard.style.display = 'block';
+        DOMElements.geminiOutputContainer.innerHTML = `<div class="text-center">
+            <div class="gemini-loader"></div><p class="mt-2 text-muted">Анализирую данные...</p>
+        </div>`;
+        
+        // --- Dynamic Prompt Generation ---
+        let prompt;
+        const detailedPrompt = `
+            Ты — профессиональный маркетолог-аналитик. Проанализируй следующие данные рекламной кампании в Facebook Ads.
+            Данные представляют собой ${analysisType}.
+            
+            Вот данные в формате JSON:
+            ${JSON.stringify(data, null, 2)}
+
+            Твоя задача:
+            1.  Написать краткое резюме (summary) по ключевым показателям.
+            2.  Определить самые эффективные и самые неэффективные сегменты/плейсменты.
+            3.  Дать 3-5 конкретных, действенных рекомендаций по оптимизации кампании на основе этих данных. Например, куда перераспределить бюджет, какие аудитории/плейсменты отключить, а какие масштабировать.
+            
+            Отвечай на русском языке. Структурируй ответ с использованием заголовков и списков для лучшей читаемости.`;
+            
+        const shortPrompt = `
+            Ты — маркетолог-аналитик. Проанализируй данные рекламной кампании из JSON ниже.
+            Данные: ${JSON.stringify(data, null, 2)}
+            
+            Твоя задача: Дай максимально краткий и информативный ответ на русском языке, без "воды".
+            1.  Создай сводную таблицу в формате Markdown с ключевыми показателями для 2-3 лучших и 1-2 худших сегментов/плейсментов. Таблица должна включать: Название, Затраты, Регистрации, CPL (цена за регистрацию), Покупки, CPP (цена за покупку). Рассчитай CPL и CPP.
+            2.  После таблицы напиши краткие выводы: укажи лучший и худший сегменты/плейсменты, обязательно упоминая их CPL или CPP.
+            3.  Дай 2-3 самых важных рекомендации в виде списка.`;
+
+        if (responseStyle === 'short') {
+            prompt = shortPrompt;
+        } else {
+            prompt = detailedPrompt;
+        }
+
+        try {
+            const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+            const payload = { contents: chatHistory };
+            const apiKey = "AIzaSyAGRzczWz_loap7x6uzBNP6pjh6WJa_Xlw"; // API key will be injected by the environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API Error: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            
+            let text = 'Не удалось получить ответ от ИИ.';
+            if (result.candidates && result.candidates.length > 0 &&
+                result.candidates[0].content && result.candidates[0].content.parts &&
+                result.candidates[0].content.parts.length > 0) {
+                text = result.candidates[0].content.parts[0].text;
+            }
+            
+            // Basic Markdown to HTML conversion for tables
+            let htmlText = text.replace(/\|/g, '</td><td>').replace(/\n/g, '</tr><tr>').replace(/<td>-+/g, '</th><th>');
+            htmlText = `<table><tr>${htmlText}</tr></table>`.replace(/<\/td><td><table>/g, '<table>').replace(/<\/tr><table>/g, '<table>').replace(/<\/table><tr><td>/g, '</table>');
+            
+            DOMElements.geminiOutputContainer.innerHTML = `<div class="gemini-output">${htmlText}</div>`;
+
+        } catch (error) {
+            console.error('Gemini API call failed:', error);
+            DOMElements.geminiOutputContainer.innerHTML = `<div class="alert alert-danger">Ошибка при обращении к Gemini API: ${error.message}</div>`;
+        }
+    }
+
+    // --- CORE LOGIC ---
+    function handleFileSelect(e) {
+        if (!e.target.files.length) return;
+        const file = e.target.files[0];
+        const dataType = e.target.dataset.type;
+        toggleLoader(true);
+
+        Papa.parse(file, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+                try {
+                    const aggregatedData = aggregateData(results.data, dataType);
+                    if (dataType === 'ageGender') {
+                        state.ageGenderData = aggregatedData;
+                        renderAgeGenderResults(aggregatedData);
+                    } else {
+                        state.placementData = aggregatedData;
+                        renderPlacementResults(aggregatedData);
+                    }
+                    DOMElements.initialMessage.style.display = 'none';
+                    updateGeminiControls();
+                } catch (error) {
+                    console.error("Processing Error:", error);
+                    alert(`Произошла ошибка при обработке данных: ${error.message}. Убедитесь, что файл имеет правильные столбцы.`);
+                } finally {
+                    toggleLoader(false);
+                }
+            },
+            error: (err) => {
+                toggleLoader(false);
+                alert(`Ошибка при парсинге CSV: ${err.message}`);
+            }
+        });
+    }
+    
+    function updateGeminiControls() {
+        DOMElements.geminiControlsCard.style.display = 'block';
+        const select = DOMElements.analysisTypeSelect;
+        select.innerHTML = ''; // Clear existing options
+
+        if (state.ageGenderData) {
+            select.options.add(new Option('Анализ по Возрасту и Полу', 'ageGender'));
+        }
+        if (state.placementData) {
+            select.options.add(new Option('Анализ по Местам Размещения', 'placement'));
+        }
+        if (state.ageGenderData && state.placementData) {
+            select.options.add(new Option('Сводный отчет (Демография + Плейсменты)', 'combined'));
+        }
+    }
+
+    function handleInsightGeneration() {
+        const analysisType = DOMElements.analysisTypeSelect.value;
+        const responseStyle = DOMElements.responseStyleSelect.value;
+        let data;
+        let analysisName;
+
+        switch(analysisType) {
+            case 'ageGender':
+                data = state.ageGenderData;
+                analysisName = 'демографическим данным (возраст и пол)';
+                break;
+            case 'placement':
+                data = state.placementData;
+                analysisName = 'местам размещения (плейсментам)';
+                break;
+            case 'combined':
+                data = {
+                    demographics: state.ageGenderData,
+                    placements: state.placementData
+                };
+                analysisName = 'сводным данным по демографии и плейсментам';
+                break;
+            default:
+                alert('Выберите тип анализа');
+                return;
+        }
+
+        if (data) {
+            fetchGeminiInsights(analysisName, responseStyle, data);
+        } else {
+            alert('Нет данных для анализа. Загрузите соответствующий файл.');
+        }
+    }
+
+    function aggregateData(data, dataType) {
+        const mapping = state.hardcodedMapping;
+        const keys = dataType === 'ageGender' ? ['age', 'gender'] : ['placement'];
+        const keyColumns = keys.map(k => mapping[k]);
+
+        if (!keyColumns.every(col => data[0] && data[0].hasOwnProperty(col))) {
+            throw new Error(`Один или несколько обязательных столбцов (${keyColumns.join(', ')}) не найдены в файле.`);
+        }
+
+        const aggregatedMap = new Map();
+        data.forEach(row => {
+            const groupKey = keyColumns.map(col => row[col] || 'N/A').join('||');
+            if (!aggregatedMap.has(groupKey)) {
+                const initialObject = { sumSpend: 0, clicks: 0, impressions: 0, leads: 0, regs: 0, purchases: 0 };
+                keys.forEach((k, i) => initialObject[k] = row[keyColumns[i]] || 'N/A');
+                aggregatedMap.set(groupKey, initialObject);
+            }
+            const entry = aggregatedMap.get(groupKey);
+            entry.sumSpend += parseFloat(row[mapping.spend]) || 0;
+            entry.clicks += parseInt(row[mapping.clicks]) || 0;
+            entry.impressions += parseInt(row[mapping.impressions]) || 0;
+            entry.leads += parseInt(row[mapping.leads]) || 0;
+            entry.regs += parseInt(row[mapping.registrations]) || 0;
+            entry.purchases += parseInt(row[mapping.purchases]) || 0;
+        });
+        return Array.from(aggregatedMap.values());
+    }
+    
+    // --- RENDERING FUNCTIONS ---
+    function renderAgeGenderResults(data) {
+        const card = document.getElementById('ageGenderCard');
+        const tableBody = card.querySelector('tbody');
+        const analysisContainer = card.querySelector('#ageGenderAnalysis');
+        tableBody.innerHTML = data.map(r => `
+            <tr>
+                <td>${r.age}</td><td>${r.gender}</td><td>${formatCurrency(r.sumSpend)}</td><td>${r.clicks}</td>
+                <td>${r.impressions}</td><td>${r.leads}</td><td>${r.regs}</td><td>${r.purchases}</td>
+            </tr>`).join('');
+        const genderData = aggregateBy(data, ['gender']);
+        const maleData = genderData.find(g => g.gender === 'male') || { sumSpend: 0, regs: 0, purchases: 0 };
+        const femaleData = genderData.find(g => g.gender === 'female') || { sumSpend: 0, regs: 0, purchases: 0 };
+        analysisContainer.innerHTML = `<div class="row mt-4">
+                <div class="col-md-6 mb-3"><div class="card h-100 shadow-sm"><div class="card-body"><h4 class="card-title text-primary">👥 Мужчины</h4><ul class="list-unstyled mb-0">
+                    <li><strong>Затраты:</strong> $${formatCurrency(maleData.sumSpend)}</li><li><strong>Регистрации:</strong> ${maleData.regs}</li>
+                    <li><strong>Депозиты:</strong> ${maleData.purchases}</li><li><strong>CPL (рег.):</strong> $${maleData.regs ? formatCurrency(maleData.sumSpend / maleData.regs) : '-'}</li>
+                    <li><strong>CPL (деп.):</strong> $${maleData.purchases ? formatCurrency(maleData.sumSpend / maleData.purchases) : '-'}</li></ul></div></div></div>
+                <div class="col-md-6 mb-3"><div class="card h-100 shadow-sm"><div class="card-body"><h4 class="card-title" style="color: #d63384;">👩‍🦰 Женщины</h4><ul class="list-unstyled mb-0">
+                    <li><strong>Затраты:</strong> $${formatCurrency(femaleData.sumSpend)}</li><li><strong>Регистрации:</strong> ${femaleData.regs}</li>
+                    <li><strong>Депозиты:</strong> ${femaleData.purchases}</li><li><strong>CPL (рег.):</strong> $${femaleData.regs ? formatCurrency(femaleData.sumSpend / femaleData.regs) : '-'}</li>
+                    <li><strong>CPL (деп.):</strong> $${femaleData.purchases ? formatCurrency(femaleData.sumSpend / femaleData.purchases) : '-'}</li></ul></div></div></div>
+            </div>`;
+        card.style.display = 'block';
+    }
+
+    function renderPlacementResults(data) {
+        const card = document.getElementById('placementCard');
+        const tableBody = card.querySelector('tbody');
+        const analysisContainer = card.querySelector('#placementAnalysis');
+        tableBody.innerHTML = data.map(r => `
+            <tr>
+                <td>${r.placement}</td><td>${formatCurrency(r.sumSpend)}</td><td>${r.clicks}</td><td>${r.impressions}</td>
+                <td>${r.leads}</td><td>${r.regs}</td><td>${r.purchases}</td>
+            </tr>`).join('');
+        const topRegs = [...data].sort((a, b) => b.regs - a.regs).slice(0, 5);
+        const topPurchases = [...data].sort((a, b) => b.purchases - a.purchases).slice(0, 5);
+        analysisContainer.innerHTML = `<div class="row mt-4">
+                <div class="col-lg-6 mb-3"><h4 class="text-success">🏆 Топ мест по регистрациям</h4><ul class="list-group shadow-sm">${topRegs.map(p => `
+                        <li class="list-group-item"><div class="d-flex justify-content-between"><strong>${p.placement}</strong><span class="badge bg-primary">${p.regs} рег.</span></div>
+                        <div class="text-muted small">CPL Рег: $${p.regs ? formatCurrency(p.sumSpend/p.regs) : '-'}</div></li>`).join('')}</ul></div>
+                <div class="col-lg-6 mb-3"><h4 class="text-success">💰 Топ мест по депозитам</h4><ul class="list-group shadow-sm">${topPurchases.map(p => `
+                        <li class="list-group-item"><div class="d-flex justify-content-between"><strong>${p.placement}</strong><span class="badge bg-success">${p.purchases} деп.</span></div>
+                        <div class="text-muted small">Цена Депозита: $${p.purchases ? formatCurrency(p.sumSpend/p.purchases) : '-'}</div></li>`).join('')}</ul></div>
+            </div>`;
+        card.style.display = 'block';
+    }
+    
+    function aggregateBy(data, keys) {
+        const map = new Map();
+        data.forEach(row => {
+            const key = keys.map(k => row[k]).join('||');
+            if (!map.has(key)) {
+                const newEntry = { ...row };
+                keys.forEach(k => newEntry[k] = row[k]);
+                Object.keys(newEntry).forEach(prop => { if (typeof newEntry[prop] !== 'string') { newEntry[prop] = parseFloat(newEntry[prop]) || 0; } });
+                map.set(key, newEntry);
+            } else {
+                const entry = map.get(key);
+                Object.keys(entry).forEach(prop => { if (typeof entry[prop] === 'number') { entry[prop] += (parseFloat(row[prop]) || 0); } });
+            }
+        });
+        return Array.from(map.values());
+    }
+
+    // --- EVENT LISTENERS ---
+    document.addEventListener('DOMContentLoaded', () => {
+        DOMElements.metaFileInput.addEventListener('change', handleFileSelect);
+        DOMElements.placementFileInput.addEventListener('change', handleFileSelect);
+        DOMElements.generateInsightsBtn.addEventListener('click', handleInsightGeneration);
+        makeTableSortable('ageGenderTable', ['str','str','num','num','num','num','num','num']);
+        makeTableSortable('placementTable', ['str','num','num','num','num','num','num']);
+    });
+    </script>
+</body>
+</html>
